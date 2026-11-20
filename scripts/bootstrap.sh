@@ -209,12 +209,12 @@ case "$(uname -m)" in
 esac
 
 curl -fsSL -o /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${arch_alias}"
-sudo install -o root -g root -m 0755 /tmp/kind /usr/local/bin/kind
+sudo install -o root -g root -m 0755 /tmp/kind /bin/kind
 rm -f /tmp/kind
 
 kubectl_version="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
 curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${arch_alias}/kubectl"
-sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+sudo install -o root -g root -m 0755 /tmp/kubectl /bin/kubectl
 rm -f /tmp/kubectl
 
 k9s_version="$(
@@ -228,7 +228,7 @@ fi
 
 curl -fsSL -o /tmp/k9s.tgz "https://github.com/derailed/k9s/releases/download/${k9s_version}/k9s_Linux_${arch_alias}.tar.gz"
 tar -xzf /tmp/k9s.tgz -C /tmp k9s
-sudo install -o root -g root -m 0755 /tmp/k9s /usr/local/bin/k9s
+sudo install -o root -g root -m 0755 /tmp/k9s /bin/k9s
 rm -f /tmp/k9s /tmp/k9s.tgz
 
 kind version
