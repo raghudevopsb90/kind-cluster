@@ -13,7 +13,7 @@ variable "ami_id" {
 variable "instance_type" {
   description = "EC2 instance type."
   type        = string
-  default     = "m6a.xlarge"
+  default     = "t3.xlarge"
 }
 
 variable "security_group_id" {
