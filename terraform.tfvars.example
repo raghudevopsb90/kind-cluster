@@ -1,2 +1,2 @@
-aws_region = "ap-south-1"
-subnet_id  = "subnet-xxxxxxxx"
+# Optional. Omit this file to use the AWS CLI or environment region.
+# aws_region = "ap-south-1"

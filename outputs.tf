@@ -1,3 +1,8 @@
+output "subnet_id" {
+  description = "Subnet selected at random from the security group VPC."
+  value       = random_shuffle.subnet.result[0]
+}
+
 output "instance_id" {
   description = "ID of the spot EC2 instance."
   value       = aws_instance.kind.id

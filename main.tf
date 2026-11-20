@@ -1,7 +1,23 @@
+data "aws_security_group" "kind" {
+  id = var.security_group_id
+}
+
+data "aws_subnets" "kind" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_security_group.kind.vpc_id]
+  }
+}
+
+resource "random_shuffle" "subnet" {
+  input        = sort(data.aws_subnets.kind.ids)
+  result_count = 1
+}
+
 resource "aws_instance" "kind" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
-  subnet_id                   = var.subnet_id
+  subnet_id                   = random_shuffle.subnet.result[0]
   vpc_security_group_ids      = [var.security_group_id]
   associate_public_ip_address = true
 

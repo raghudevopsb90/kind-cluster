@@ -1,11 +1,7 @@
 variable "aws_region" {
-  description = "Region where ami-0eec78ea4cbaaf5bd and the security group exist. AMI IDs are regional."
+  description = "Region for the AMI and security group. Leave unset to use the AWS CLI or environment region."
   type        = string
-}
-
-variable "subnet_id" {
-  description = "Subnet for the instance. It must be in the same VPC as sg-01c38564765bc218b and must assign a public IPv4 address so Terraform can SSH in."
-  type        = string
+  default     = null
 }
 
 variable "ami_id" {
