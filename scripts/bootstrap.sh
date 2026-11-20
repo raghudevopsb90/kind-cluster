@@ -25,6 +25,49 @@ if command -v cloud-init >/dev/null 2>&1; then
   sudo cloud-init status --wait || true
 fi
 
+# The 40 GiB EBS volume is larger than the AMI partitions. Grow the last
+# partition, then add 10 GiB to /var before Docker pulls the kind node image.
+grow_var_volume() {
+  if ! command -v growpart >/dev/null 2>&1; then
+    if command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y cloud-utils-growpart
+    else
+      sudo yum install -y cloud-utils-growpart
+    fi
+  fi
+
+  local pv disk part_num rc free_mib
+  pv="$(sudo pvs --noheadings -o pv_name,vg_name | awk '$2=="RootVG" {print $1; exit}')"
+  if [[ -z "${pv}" ]]; then
+    echo "RootVG physical volume not found" >&2
+    exit 1
+  fi
+
+  disk="$(lsblk -ndo PKNAME "${pv}")"
+  part_num="$(lsblk -nr -o TYPE,PARTN "/dev/${disk}" | awk '$1=="part" {n=$2} END {print n}')"
+  if [[ -z "${disk}" || -z "${part_num}" ]]; then
+    echo "could not find the last partition on ${pv}" >&2
+    exit 1
+  fi
+
+  rc=0
+  sudo growpart "/dev/${disk}" "${part_num}" || rc=$?
+  if [[ "${rc}" -ne 0 && "${rc}" -ne 2 ]]; then
+    exit "${rc}"
+  fi
+
+  sudo pvresize "${pv}"
+
+  free_mib="$(sudo vgs --noheadings --nosuffix --units m -o vg_free RootVG | awk '{print int($1)}')"
+  if [[ "${free_mib}" -lt 10240 ]]; then
+    echo "RootVG has ${free_mib} MiB free, need 10240 MiB to extend varVol by 10 GiB" >&2
+    exit 1
+  fi
+  sudo lvextend -r -L +10G /dev/RootVG/varVol
+}
+
+grow_var_volume
+
 need_sudo
 if command -v dnf >/dev/null 2>&1; then
   sudo dnf install -y ca-certificates curl tar gzip
@@ -81,13 +124,72 @@ rpm -q docker-ce
 sudo systemctl enable --now docker
 sudo usermod -aG docker "$(id -un)"
 
+prepare_kind_host() {
+  sudo modprobe overlay || true
+  sudo modprobe br_netfilter || true
+
+  sudo tee /etc/modules-load.d/kind.conf >/dev/null <<'EOF'
+overlay
+br_netfilter
+EOF
+
+  sudo tee /etc/sysctl.d/kind.conf >/dev/null <<'EOF'
+net.ipv4.ip_forward = 1
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 512
+EOF
+  sudo sysctl -w net.ipv4.ip_forward=1
+  sudo sysctl -w fs.inotify.max_user_watches=524288
+  sudo sysctl -w fs.inotify.max_user_instances=512
+  if [[ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]]; then
+    sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+    sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+    printf '%s\n' \
+      'net.bridge.bridge-nf-call-iptables = 1' \
+      'net.bridge.bridge-nf-call-ip6tables = 1' \
+      | sudo tee -a /etc/sysctl.d/kind.conf >/dev/null
+  fi
+
+  # RHEL firewalld's nftables backend drops Docker bridge traffic that kind needs.
+  if systemctl is-active --quiet firewalld; then
+    sudo systemctl disable --now firewalld
+  fi
+
+  if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce)" == "Enforcing" ]]; then
+    sudo setenforce 0
+    sudo sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+  fi
+
+  sudo mkdir -p /etc/docker
+  sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "storage-driver": "overlay2",
+  "features": {
+    "containerd-snapshotter": false
+  }
+}
+EOF
+  sudo systemctl restart docker
+}
+
+prepare_kind_host
+
+run_with_docker() {
+  if docker info >/dev/null 2>&1; then
+    bash -c "$1"
+  else
+    sg docker -c "$1"
+  fi
+}
+
 for _ in $(seq 1 30); do
-  if sg docker -c "docker info" >/dev/null 2>&1; then
+  if run_with_docker "docker info" >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
-sg docker -c "docker info" >/dev/null
+run_with_docker "docker info" >/dev/null
 
 case "$(uname -m)" in
   x86_64) arch_alias="amd64" ;;
@@ -125,11 +227,30 @@ kind version
 kubectl version --client
 k9s version
 
-# usermod does not change the groups of this SSH session. sg starts kind
-# with the docker group so the cluster kubeconfig stays in this user's home.
-if ! sg docker -c "kind get clusters" | grep -qx "${KIND_CLUSTER_NAME}"; then
-  sg docker -c "kind create cluster --name ${KIND_CLUSTER_NAME}"
+# Nitro instances expose the root filesystem through an NVMe device that is
+# absent inside the kind node. kubelet then never starts the API server, and
+# kubeadm fails with "connection refused" on port 6443.
+root_source="$(findmnt -n -o SOURCE /)"
+root_dev="$(readlink -f "${root_source}")"
+kind_config="$(mktemp)"
+{
+  echo "kind: Cluster"
+  echo "apiVersion: kind.x-k8s.io/v1alpha4"
+  echo "name: ${KIND_CLUSTER_NAME}"
+  echo "nodes:"
+  echo "  - role: control-plane"
+  if [[ -b "${root_dev}" ]]; then
+    echo "    extraMounts:"
+    echo "      - hostPath: ${root_dev}"
+    echo "        containerPath: ${root_dev}"
+    echo "        propagation: HostToContainer"
+  fi
+} > "${kind_config}"
+
+if ! run_with_docker "kind get clusters" | grep -qx "${KIND_CLUSTER_NAME}"; then
+  run_with_docker "kind create cluster --name ${KIND_CLUSTER_NAME} --config ${kind_config}"
 fi
+rm -f "${kind_config}"
 
 kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}"
 kubectl get nodes --context "kind-${KIND_CLUSTER_NAME}"

@@ -28,7 +28,9 @@ resource "aws_instance" "kind" {
   }
 
   root_block_device {
-    volume_type           = "gp3"
+    volume_type = "gp3"
+    # 40 GiB. The guest still has the AMI partition table until bootstrap
+    # runs growpart and lvextend on /dev/RootVG/varVol.
     volume_size           = var.root_volume_size
     delete_on_termination = true
   }
@@ -60,7 +62,7 @@ resource "null_resource" "kind_bootstrap" {
   provisioner "remote-exec" {
     inline = [
       "chmod 700 /tmp/bootstrap-kind.sh",
-      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
+      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh &>/tmp/kind.log",
       "rm -f /tmp/bootstrap-kind.sh",
     ]
   }

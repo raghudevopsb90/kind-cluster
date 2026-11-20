@@ -23,7 +23,7 @@ variable "security_group_id" {
 }
 
 variable "root_volume_size" {
-  description = "Root volume size in GiB. Must be at least as large as the AMI snapshot. Kind node images need extra space beyond a small root disk."
+  description = "Root EBS volume size in GiB. Bootstrap then grows the last partition and adds 10 GiB to /dev/RootVG/varVol."
   type        = number
   default     = 40
 }
