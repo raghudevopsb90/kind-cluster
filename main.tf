@@ -54,6 +54,18 @@ resource "null_resource" "kind_bootstrap" {
     timeout  = "10m"
   }
 
+  provisioner "remote-exec" {
+    inline = [
+      "sudo -n true 2>/dev/null || echo '${var.ssh_password}' | sudo -S -p '' -v",
+      "sudo dnf update -y",
+      "sudo sh -c 'sleep 5; reboot' >/dev/null 2>&1 &",
+    ]
+  }
+
+  provisioner "local-exec" {
+    command = "sleep 120"
+  }
+
   provisioner "file" {
     source      = "${path.module}/scripts/bootstrap.sh"
     destination = "/tmp/bootstrap-kind.sh"
@@ -62,7 +74,7 @@ resource "null_resource" "kind_bootstrap" {
   provisioner "remote-exec" {
     inline = [
       "chmod 700 /tmp/bootstrap-kind.sh",
-      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh &>/tmp/kind.log",
+      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
       "rm -f /tmp/bootstrap-kind.sh",
     ]
   }

@@ -58,12 +58,20 @@ grow_var_volume() {
 
   sudo pvresize "${pv}"
 
+  local marker="/var/lib/kind-bootstrap/varvol-plus-10g"
+  if [[ -f "${marker}" ]]; then
+    echo "varVol already extended by 10 GiB"
+    return 0
+  fi
+
   free_mib="$(sudo vgs --noheadings --nosuffix --units m -o vg_free RootVG | awk '{print int($1)}')"
   if [[ "${free_mib}" -lt 10240 ]]; then
     echo "RootVG has ${free_mib} MiB free, need 10240 MiB to extend varVol by 10 GiB" >&2
     exit 1
   fi
   sudo lvextend -r -L +10G /dev/RootVG/varVol
+  sudo mkdir -p /var/lib/kind-bootstrap
+  sudo touch "${marker}"
 }
 
 grow_var_volume
@@ -133,21 +141,21 @@ overlay
 br_netfilter
 EOF
 
-  sudo tee /etc/sysctl.d/kind.conf >/dev/null <<'EOF'
-net.ipv4.ip_forward = 1
-fs.inotify.max_user_watches = 524288
-fs.inotify.max_user_instances = 512
-EOF
+  {
+    echo "net.ipv4.ip_forward = 1"
+    echo "fs.inotify.max_user_watches = 524288"
+    echo "fs.inotify.max_user_instances = 512"
+    if [[ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]]; then
+      echo "net.bridge.bridge-nf-call-iptables = 1"
+      echo "net.bridge.bridge-nf-call-ip6tables = 1"
+    fi
+  } | sudo tee /etc/sysctl.d/kind.conf >/dev/null
   sudo sysctl -w net.ipv4.ip_forward=1
   sudo sysctl -w fs.inotify.max_user_watches=524288
   sudo sysctl -w fs.inotify.max_user_instances=512
   if [[ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]]; then
     sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
     sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=1
-    printf '%s\n' \
-      'net.bridge.bridge-nf-call-iptables = 1' \
-      'net.bridge.bridge-nf-call-ip6tables = 1' \
-      | sudo tee -a /etc/sysctl.d/kind.conf >/dev/null
   fi
 
   # RHEL firewalld's nftables backend drops Docker bridge traffic that kind needs.
@@ -252,5 +260,6 @@ if ! run_with_docker "kind get clusters" | grep -qx "${KIND_CLUSTER_NAME}"; then
 fi
 rm -f "${kind_config}"
 
+kubectl wait --for=condition=Ready nodes --all --context "kind-${KIND_CLUSTER_NAME}" --timeout=300s
 kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}"
 kubectl get nodes --context "kind-${KIND_CLUSTER_NAME}"
