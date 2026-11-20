@@ -1,0 +1,52 @@
+variable "aws_region" {
+  description = "Region where ami-0eec78ea4cbaaf5bd and the security group exist. AMI IDs are regional."
+  type        = string
+}
+
+variable "subnet_id" {
+  description = "Subnet for the instance. It must be in the same VPC as sg-01c38564765bc218b and must assign a public IPv4 address so Terraform can SSH in."
+  type        = string
+}
+
+variable "ami_id" {
+  description = "AMI to launch. The image must allow SSH as ec2-user with the configured password."
+  type        = string
+  default     = "ami-0eec78ea4cbaaf5bd"
+}
+
+variable "instance_type" {
+  description = "EC2 instance type."
+  type        = string
+  default     = "m6a.xlarge"
+}
+
+variable "security_group_id" {
+  description = "Existing security group. It must allow SSH (TCP 22) from the host running Terraform."
+  type        = string
+  default     = "sg-01c38564765bc218b"
+}
+
+variable "root_volume_size" {
+  description = "Root volume size in GiB. Must be at least as large as the AMI snapshot. Kind node images need extra space beyond a small root disk."
+  type        = number
+  default     = 40
+}
+
+variable "ssh_user" {
+  description = "SSH user for the remote-exec provisioner."
+  type        = string
+  default     = "ec2-user"
+}
+
+variable "ssh_password" {
+  description = "SSH password for the remote-exec provisioner."
+  type        = string
+  sensitive   = true
+  default     = "DevOps321"
+}
+
+variable "kind_cluster_name" {
+  description = "Name of the kind cluster created after the instance boots."
+  type        = string
+  default     = "kind"
+}
