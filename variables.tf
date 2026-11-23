@@ -37,7 +37,6 @@ variable "ssh_user" {
 variable "ssh_password" {
   description = "SSH password for the remote-exec provisioner."
   type        = string
-  sensitive   = true
   default     = "DevOps321"
 }
 
