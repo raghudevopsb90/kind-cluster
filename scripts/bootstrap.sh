@@ -51,10 +51,7 @@ grow_var_volume() {
   fi
 
   rc=0
-  sudo growpart "/dev/${disk}" "${part_num}" || rc=$?
-  if [[ "${rc}" -ne 0 && "${rc}" -ne 2 ]]; then
-    exit "${rc}"
-  fi
+  sudo growpart "/dev/${disk}" "${part_num}" || return
 
   sudo pvresize "${pv}"
 
@@ -74,7 +71,7 @@ grow_var_volume() {
   sudo touch "${marker}"
 }
 
-grow_var_volume
+grow_var_volume || true
 
 need_sudo
 if command -v dnf >/dev/null 2>&1; then

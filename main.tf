@@ -42,21 +42,23 @@ resource "null_resource" "kind_bootstrap" {
   }
 
   provisioner "remote-exec" {
+
+    provisioner "file" {
+      source      = "${path.module}/scripts/bootstrap.sh"
+      destination = "/tmp/bootstrap-kind.sh"
+    }
+
     inline = [
-      "sudo -n true 2>/dev/null || echo '${var.ssh_password}' | sudo -S -p '' -v",
-      "sudo dnf update -y",
+      "chmod 700 /tmp/bootstrap-kind.sh",
+      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
       "sudo sh -c 'sleep 5; reboot' >/dev/null 2>&1 &",
     ]
   }
 
   provisioner "local-exec" {
-    command = "sleep 120"
+    command = "sleep 60"
   }
 
-  provisioner "file" {
-    source      = "${path.module}/scripts/bootstrap.sh"
-    destination = "/tmp/bootstrap-kind.sh"
-  }
 
   provisioner "remote-exec" {
     inline = [
