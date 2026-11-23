@@ -41,13 +41,12 @@ resource "null_resource" "kind_bootstrap" {
     timeout  = "10m"
   }
 
+  provisioner "file" {
+    source      = "${path.module}/scripts/bootstrap.sh"
+    destination = "/tmp/bootstrap-kind.sh"
+  }
+
   provisioner "remote-exec" {
-
-    provisioner "file" {
-      source      = "${path.module}/scripts/bootstrap.sh"
-      destination = "/tmp/bootstrap-kind.sh"
-    }
-
     inline = [
       "chmod 700 /tmp/bootstrap-kind.sh",
       "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
