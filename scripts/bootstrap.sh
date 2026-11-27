@@ -1,6 +1,6 @@
 #!/bin/bash
+# Second stage, after prepare.sh and the reboot.
 # Installs docker-ce, kind, kubectl, and k9s, then creates a kind cluster.
-# Invoked by the null_resource remote-exec provisioner as ec2-user.
 set -euo pipefail
 
 if [[ -z "${SSH_PASSWORD:-}" ]]; then
@@ -21,59 +21,6 @@ need_sudo() {
 
 need_sudo
 
-if command -v cloud-init >/dev/null 2>&1; then
-  sudo cloud-init status --wait || true
-fi
-
-# The 40 GiB EBS volume is larger than the AMI partitions. Grow the last
-# partition, then add 10 GiB to /var before Docker pulls the kind node image.
-grow_var_volume() {
-  if ! command -v growpart >/dev/null 2>&1; then
-    if command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y cloud-utils-growpart
-    else
-      sudo yum install -y cloud-utils-growpart
-    fi
-  fi
-
-  local pv disk part_num rc free_mib
-  pv="$(sudo pvs --noheadings -o pv_name,vg_name | awk '$2=="RootVG" {print $1; exit}')"
-  if [[ -z "${pv}" ]]; then
-    echo "RootVG physical volume not found" >&2
-    exit 1
-  fi
-
-  disk="$(lsblk -ndo PKNAME "${pv}")"
-  part_num="$(lsblk -nr -o TYPE,PARTN "/dev/${disk}" | awk '$1=="part" {n=$2} END {print n}')"
-  if [[ -z "${disk}" || -z "${part_num}" ]]; then
-    echo "could not find the last partition on ${pv}" >&2
-    exit 1
-  fi
-
-  rc=0
-  sudo growpart "/dev/${disk}" "${part_num}" || return
-
-  sudo pvresize "${pv}"
-
-  local marker="/var/lib/kind-bootstrap/varvol-plus-10g"
-  if [[ -f "${marker}" ]]; then
-    echo "varVol already extended by 10 GiB"
-    return 0
-  fi
-
-  free_mib="$(sudo vgs --noheadings --nosuffix --units m -o vg_free RootVG | awk '{print int($1)}')"
-  if [[ "${free_mib}" -lt 10240 ]]; then
-    echo "RootVG has ${free_mib} MiB free, need 10240 MiB to extend varVol by 10 GiB" >&2
-    exit 1
-  fi
-  sudo lvextend -r -L +10G /dev/RootVG/varVol
-  sudo mkdir -p /var/lib/kind-bootstrap
-  sudo touch "${marker}"
-}
-
-grow_var_volume || true
-
-need_sudo
 if command -v dnf >/dev/null 2>&1; then
   sudo dnf install -y ca-certificates curl tar gzip
 else
@@ -130,12 +77,15 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker "$(id -un)"
 
 prepare_kind_host() {
-  sudo modprobe overlay || true
-  sudo modprobe br_netfilter || true
+  if ! sudo modprobe -a overlay br_netfilter xt_addrtype; then
+    echo "kernel $(uname -r) is missing modules. Run prepare.sh and reboot first." >&2
+    exit 1
+  fi
 
   sudo tee /etc/modules-load.d/kind.conf >/dev/null <<'EOF'
 overlay
 br_netfilter
+xt_addrtype
 EOF
 
   {

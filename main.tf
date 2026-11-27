@@ -29,8 +29,9 @@ resource "aws_instance" "kind" {
 
 resource "null_resource" "kind_bootstrap" {
   triggers = {
-    instance_id = aws_instance.kind.id
-    script_sha  = filesha256("${path.module}/scripts/bootstrap.sh")
+    instance_id   = aws_instance.kind.id
+    prepare_sha   = filesha256("${path.module}/scripts/prepare.sh")
+    bootstrap_sha = filesha256("${path.module}/scripts/bootstrap.sh")
   }
 
   connection {
@@ -42,28 +43,30 @@ resource "null_resource" "kind_bootstrap" {
   }
 
   provisioner "file" {
+    source      = "${path.module}/scripts/prepare.sh"
+    destination = "/home/${var.ssh_user}/kind-prepare.sh"
+  }
+
+  provisioner "file" {
     source      = "${path.module}/scripts/bootstrap.sh"
-    destination = "/tmp/bootstrap-kind.sh"
+    destination = "/home/${var.ssh_user}/kind-bootstrap.sh"
   }
 
+  # One command per block. Terraform only checks the exit code of the last
+  # inline line, so a failure earlier in a list goes unnoticed.
   provisioner "remote-exec" {
-    inline = [
-      "chmod 700 /tmp/bootstrap-kind.sh",
-      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
-      "sudo sh -c 'sleep 5; reboot' >/dev/null 2>&1 &",
-    ]
+    inline = ["bash ~/kind-prepare.sh"]
   }
 
+  # prepare.sh may have scheduled a reboot 5 seconds out. Wait until the box
+  # is down; the next block's connection then retries until SSH is back.
   provisioner "local-exec" {
-    command = "sleep 60"
+    command = "sleep 30"
   }
-
 
   provisioner "remote-exec" {
     inline = [
-      "chmod 700 /tmp/bootstrap-kind.sh",
-      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash /tmp/bootstrap-kind.sh",
-      "rm -f /tmp/bootstrap-kind.sh",
+      "SSH_PASSWORD='${var.ssh_password}' KIND_CLUSTER_NAME='${var.kind_cluster_name}' bash ~/kind-bootstrap.sh && rm -f ~/kind-prepare.sh ~/kind-bootstrap.sh",
     ]
   }
 }
