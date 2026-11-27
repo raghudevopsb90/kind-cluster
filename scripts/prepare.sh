@@ -18,7 +18,7 @@ grow_var() {
     return
   fi
   disk="$(lsblk -ndo PKNAME "${pv}")"
-  part="$(lsblk -ndo PARTN "${pv}")"
+  part="$(cat "/sys/class/block/$(basename "${pv}")/partition")"
 
   sudo dnf install -y cloud-utils-growpart
   sudo growpart "/dev/${disk}" "${part}" || true   # exits 1 with NOCHANGE on a rerun
